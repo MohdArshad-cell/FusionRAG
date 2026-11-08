@@ -12,6 +12,20 @@ class QueryRequest(BaseModel):
     enforce_crag: bool = Field(default=True, description="Enable Corrective RAG confidence gating")
     doc_id_filter: Optional[str] = Field(default=None, description="Filter results to a specific document ID")
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "query": "What does ERR_404_AUTH mean and how do I fix it?",
+                "stream": False,
+                "top_n": 5,
+                "use_hyde": False,
+                "expand_query": False,
+                "enable_cache": True,
+                "enforce_crag": True
+            }
+        }
+    }
+
 
 class ChunkSource(BaseModel):
     chunk_id: str

@@ -204,6 +204,17 @@ LLM_MODEL=llama-3.3-70b-versatile
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+### 5. Seed Realistic Technical Knowledge Base (Optional)
+```bash
+python scripts/seed_data.py
+```
+
+### 6. Interactive Terminal CLI
+Prefer using the terminal over a browser? Launch the rich interactive console:
+```bash
+python scripts/cli_chat.py
+```
+
 ---
 
 ## 📡 API Reference & Usage

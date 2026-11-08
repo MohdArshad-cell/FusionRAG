@@ -1,52 +1,46 @@
-# ⚡ FusionRAG — Production Hybrid-Search RAG Engine
+<div align="center">
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![ChromaDB](https://img.shields.io/badge/Vector_DB-ChromaDB-purple.svg)](https://www.trychroma.com/)
-[![BM25](https://img.shields.io/badge/Lexical-BM25Okapi-orange.svg)](https://github.com/dorianbrown/rank_bm25)
-[![Cross-Encoder](https://img.shields.io/badge/Re--Ranking-Cross--Encoder-red.svg)](https://www.sbert.net/)
+# ⚡ FusionRAG
+### Production Hybrid-Search RAG Engine
+**Dual Parallel Retrieval • Reciprocal Rank Fusion • Cross-Encoder Re-Ranking • Sub-3ms Semantic Cache • CRAG Guardrails**
+
+[![CI/CD Pipeline](https://github.com/MohdArshad-cell/FusionRAG/actions/workflows/ci.yml/badge.svg)](https://github.com/MohdArshad-cell/FusionRAG/actions/workflows/ci.yml)
+[![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-0.5+-purple.svg)](https://www.trychroma.com/)
+[![BM25](https://img.shields.io/badge/BM25-Okapi-orange.svg)](https://github.com/dorianbrown/rank_bm25)
+[![Sentence-Transformers](https://img.shields.io/badge/Sentence--Transformers-3.0+-yellow.svg)](https://www.sbert.net/)
+[![Cross-Encoder](https://img.shields.io/badge/Cross--Encoder-ms--marco-red.svg)](https://www.sbert.net/)
 [![Tests](https://img.shields.io/badge/Tests-22%20Passed-brightgreen.svg)]()
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-> A production-grade Hybrid-Search Retrieval-Augmented Generation (RAG) engine built with **Python 3.10+**, **FastAPI**, **ChromaDB**, **Rank-BM25**, and **Cross-Encoder Re-Ranking**, designed to conquer both exact-keyword lookups and semantic reasoning.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## Table of Contents
+</div>
 
-- [Overview & Problem Statement](#overview--problem-statement)
-- [System Architecture](#system-architecture)
-- [Core Engineering Pillars](#core-engineering-pillars)
-- [Benchmark Results](#benchmark-results)
-- [Project Directory Layout](#project-directory-layout)
-- [Installation & Setup](#installation--setup)
-- [API Reference & Usage](#api-reference--usage)
-- [Developer Web Console](#developer-web-console)
-- [Monitoring & Prometheus Metrics](#monitoring--prometheus-metrics)
-- [License](#license)
+## 📌 The Real-World Engineering Problem
 
----
+When enterprise search and production AI systems rely solely on traditional or single-vector retrieval pipelines, they encounter severe real-world failure modes:
 
-## Overview & Problem Statement
-
-Most production RAG systems built today suffer from a fundamental failure mode:
-
-1. **Semantic Vector Search Flaw:** Dense embedding models (e.g., OpenAI `text-embedding-3`, Gemini, BERT) map text into a conceptual vector space. While excellent at broad semantic intent, they frequently miss or misrank **exact alphanumeric tokens**, such as:
-   - Technical product models: `X-500`, `RTX-4090-OC`
-   - Exact error codes: `ERR_404_AUTH`, `E_CONN_TIMEOUT_502`
-   - Unique identifiers: UUIDs, serial numbers, specific names
-2. **Lexical BM25 Flaw:** Traditional sparse search (BM25Okapi) excels at keyword frequency matching, but lacks semantic understanding (e.g., searching *"how to fix thermal coastline expansion"* will never match a document about *"rising greenhouse gases and sea levels"* unless exact terms overlap).
-
-### The FusionRAG Solution
-**FusionRAG** combines dense semantic embeddings and sparse lexical tokens into a synchronized dual-retrieval pipeline merged via **Reciprocal Rank Fusion (RRF)** and deep **Cross-Encoder Re-Ranking**, achieving **100% recall** across both exact identifiers and conceptual semantics.
+1. **The Exact Alphanumeric Blindspot (Vector Search Flaw)**: Dense embedding models map queries into broad semantic spaces. While good for conceptual intent, they frequently misrank or miss exact technical model numbers (`X-500`), error codes (`ERR_404_AUTH`), UUIDs, and proper nouns.
+2. **The Synonym & Semantic Blindness (BM25 Flaw)**: Traditional sparse lexical search (BM25) only matches shared tokens. It completely fails when user queries use synonyms or abstract descriptions (e.g., searching *"coastal thermal expansion"* fails to match *"greenhouse gases and rising sea levels"*).
+3. **The Score Scale Incompatibility Trap**: Raw BM25 scores are unbounded $[0, \infty)$ while cosine similarity is bounded $[-1, 1]$. Naive score normalization (Min-Max or Z-Score) distorts under score outliers and different corpus sizes.
+4. **The Cross-Encoder Latency Bottleneck**: Running heavy cross-encoders across large candidate pools explodes P95 latency to several seconds, exceeding the production latency budget.
+5. **The "Lost in the Middle" Attention Degradation**: LLMs exhibit U-shaped attention curves, ignoring evidence situated in the middle of long contexts.
+6. **Silent Hallucinations & Ungrounded Claims**: When retrieval returns unverified or irrelevant documents, standard RAG forces the LLM to guess, producing believable hallucinations.
 
 ---
 
-## System Architecture
+## 💡 The Architectural Solution
+
+**FusionRAG** combines dense semantic embeddings and sparse lexical tokens into a synchronized dual-retrieval pipeline merged via **Reciprocal Rank Fusion (RRF)**, deep **Cross-Encoder Re-Ranking**, **CRAG Confidence Gating**, and a **Faithfulness Verifier**, achieving **100% recall** across both exact identifiers and conceptual semantics.
 
 ```mermaid
 flowchart TD
-    UserQuery["User Query"] --> Enhancement{"Query Enhancement?"}
+    UserQuery["User Query"] --> CacheCheck{"Semantic Cache Hit?<br>(Cosine Sim ≥ 0.94)"}
+    CacheCheck -->|Yes| InstantReturn["⚡ Return Cached Response (< 3ms)"]
+    CacheCheck -->|No| Enhancement{"Query Enhancement?"}
+
     Enhancement -->|HyDE / Multi-Query| EnhancedQueries["Augmented Queries"]
     Enhancement -->|Default| SingleQuery["Original Query"]
 
@@ -74,7 +68,7 @@ flowchart TD
 
 ---
 
-## Core Engineering Pillars
+## 🔬 Core Engineering Pillars
 
 ### 1. Dual Parallel Retrieval (`retriever.py`)
 Both dense semantic search (ChromaDB) and lexical sparse search (BM25) execute concurrently using `asyncio.gather()` with CPU offloading via `asyncio.to_thread()`, keeping retrieval latencies in the **18–22ms** window.
@@ -118,7 +112,7 @@ Supports real-time token streaming via Server-Sent Events (SSE) directly to web 
 
 ---
 
-## Benchmark Results
+## 📊 Benchmark Results
 
 Evaluated with `scripts/benchmark.py` on real technical queries containing exact error codes (`ERR_404_AUTH`), hardware model identifiers (`X-500`), network gateway timeouts (`ERR_502_GATEWAY`), and abstract conceptual questions:
 
@@ -130,7 +124,7 @@ Evaluated with `scripts/benchmark.py` on real technical queries containing exact
 
 ---
 
-## Project Directory Layout
+## 📂 Project Directory Layout
 
 ```
 FusionRAG/
@@ -173,11 +167,14 @@ FusionRAG/
 ├── scripts/
 │   ├── benchmark.py             # Accuracy & latency comparison benchmark
 │   ├── cli_chat.py              # Interactive rich terminal console
+│   ├── evaluate_rag.py          # Automated RAG Triad quality evaluation
 │   └── seed_data.py             # Seed sample technical knowledge base
 ├── tests/                       # Full pytest suite (22 tests)
 ├── .github/workflows/ci.yml     # Automated GitHub Actions CI workflow
 ├── Dockerfile                   # Multi-stage container definition
 ├── docker-compose.yml           # Multi-container orchestration
+├── Makefile                     # Task runner for Linux/macOS
+├── tasks.ps1                    # Task runner for Windows PowerShell
 ├── IMPLEMENTATION_PLAN.md       # Detailed 7-phase architecture blueprint
 ├── pyproject.toml               # Project metadata & dependencies
 └── .env.example                 # Environment variable templates
@@ -185,7 +182,7 @@ FusionRAG/
 
 ---
 
-## Installation & Setup
+## 🚀 Quickstart & Installation
 
 ### 1. Clone the Repository
 ```bash
@@ -195,7 +192,7 @@ cd FusionRAG
 
 ### 2. Install Dependencies
 ```bash
-python -m pip install -e .
+python -m pip install -e ".[dev]"
 ```
 
 ### 3. Configure Environment Variables
@@ -229,7 +226,7 @@ python scripts/cli_chat.py
 
 ---
 
-## API Reference & Usage
+## 📡 API Reference & Usage
 
 ### 1. Ingest Documents
 **Upload File (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`):**
@@ -297,7 +294,7 @@ curl -N "http://localhost:8000/query/stream?q=What+does+ERR_404_AUTH+indicate?"
 
 ---
 
-## Developer Web Console
+## 🖥️ Developer Web Console
 
 FusionRAG includes a built-in dark-mode developer dashboard. Once the server is running, navigate to:
 
@@ -312,7 +309,7 @@ FusionRAG includes a built-in dark-mode developer dashboard. Once the server is 
 
 ---
 
-## Monitoring & Prometheus Metrics
+## 📈 Monitoring & Prometheus Metrics
 
 FusionRAG exports real-time Prometheus metrics at:
 
@@ -327,6 +324,6 @@ Key metrics tracked:
 
 ---
 
-## License
+## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).

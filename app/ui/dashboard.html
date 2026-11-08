@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FusionRAG — Production Hybrid-Search Engine</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #131c2e;
+            --bg-card: #19243b;
+            --border: #263554;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .badge {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            color: #fff;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            letter-spacing: 0.05em;
+        }
+
+        .stats-bar {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .stats-item span {
+            color: var(--accent-cyan);
+            font-weight: 600;
+        }
+
+        main {
+            max-width: 1400px;
+            margin: 1.5rem auto;
+            padding: 0 1.5rem;
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 1.5rem;
+        }
+
+        .card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.4rem;
+        }
+
+        input[type="text"], textarea, select {
+            width: 100%;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            padding: 0.6rem 0.8rem;
+            font-family: inherit;
+            font-size: 0.9rem;
+            margin-bottom: 0.8rem;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 0.6rem 1.2rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .btn-secondary:hover {
+            color: var(--text-primary);
+            border-color: var(--accent-cyan);
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .checkbox-label input {
+            cursor: pointer;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+        }
+
+        .tab-btn.active {
+            color: var(--accent-cyan);
+            background-color: var(--bg-card);
+        }
+
+        /* Results Display */
+        .results-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .answer-box {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            border-left: 4px solid var(--accent-cyan);
+        }
+
+        .answer-text {
+            font-size: 1rem;
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin-top: 0.5rem;
+            white-space: pre-wrap;
+        }
+
+        /* Timing bar waterfall */
+        .timings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 0.75rem;
+            margin-top: 1rem;
+            background-color: var(--bg-card);
+            padding: 0.8rem;
+            border-radius: 6px;
+        }
+
+        .timing-item {
+            text-align: center;
+        }
+
+        .timing-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .timing-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-green);
+        }
+
+        /* Sources List */
+        .sources-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+
+        .sources-table th, .sources-table td {
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sources-table th {
+            color: var(--text-muted);
+            font-weight: 600;
+            background-color: var(--bg-card);
+        }
+
+        .score-pill {
+            display: inline-block;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            background-color: rgba(6, 182, 212, 0.15);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+        }
+
+        .retriever-pill {
+            display: inline-block;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            background-color: rgba(139, 92, 246, 0.15);
+            color: var(--accent-purple);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        .chunk-preview {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-top: 0.3rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <h2>⚡ FusionRAG</h2>
+            <span class="badge">PRODUCTION HYBRID</span>
+        </div>
+        <div class="stats-bar">
+            <div class="stats-item">ChromaDB Chunks: <span id="statChroma">0</span></div>
+            <div class="stats-item">BM25 Chunks: <span id="statBm25">0</span></div>
+            <div class="stats-item">Status: <span id="statHealth" style="color: var(--accent-green);">Ready</span></div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Sidebar: Ingestion & Pipeline Options -->
+        <div class="sidebar">
+            <div class="card">
+                <div class="card-header">📥 Document Ingestion</div>
+                
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="switchIngestTab('file')">File Upload</button>
+                    <button class="tab-btn" onclick="switchIngestTab('text')">Raw Text</button>
+                </div>
+
+                <div id="fileIngestForm">
+                    <label>Select Document (.pdf, .docx, .txt, .md, .csv)</label>
+                    <input type="file" id="docFileInput" style="margin-bottom: 0.8rem; font-size: 0.85rem;">
+                    <button class="btn" onclick="uploadDocumentFile()">Ingest Document</button>
+                </div>
+
+                <div id="textIngestForm" style="display: none;">
+                    <label>Document Title</label>
+                    <input type="text" id="textFilename" placeholder="manual.txt">
+                    <label>Text Content</label>
+                    <textarea id="rawTextContent" rows="4" placeholder="Model X-500 runs at 15000 RPM. Error ERR_404_AUTH requires re-authentication..."></textarea>
+                    <button class="btn" onclick="ingestRawText()">Ingest Text</button>
+                </div>
+
+                <div id="ingestResult" style="margin-top: 0.8rem; font-size: 0.8rem;"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">⚙️ Pipeline Controls</div>
+                <div class="checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="chkHyde"> Enable HyDE (Hypothetical Embeddings)
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="chkExpand"> Multi-Query Expansion
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="chkStream" checked> Real-Time SSE Token Streaming
+                    </label>
+                </div>
+
+                <label>Top Context Candidates</label>
+                <select id="selTopN">
+                    <option value="3">Top 3 Chunks</option>
+                    <option value="5" selected>Top 5 Chunks (Recommended)</option>
+                    <option value="10">Top 10 Chunks</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Main Query Section -->
+        <div class="results-container">
+            <div class="card">
+                <div class="card-header">🔍 Hybrid Query Console</div>
+                <label>Enter Query (Try exact keywords like "ERR_404_AUTH" or semantic questions)</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="queryInput" placeholder="What does ERR_404_AUTH mean and how do I fix it?" onkeydown="if(event.key==='Enter') executeQuery()">
+                    <button class="btn" style="width: 140px;" onclick="executeQuery()">Search</button>
+                </div>
+            </div>
+
+            <div class="answer-box" id="answerCard" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-weight: 600; font-size: 0.95rem; color: var(--accent-cyan);">💡 Verified Answer</div>
+                    <div id="statusIndicator" style="font-size: 0.8rem; color: var(--text-muted);">Completed</div>
+                </div>
+                <div class="answer-text" id="answerContent"></div>
+
+                <!-- Latency Waterfall -->
+                <div class="timings-grid" id="timingsBox">
+                    <div class="timing-item">
+                        <div class="timing-label">Parallel Retrieval</div>
+                        <div class="timing-value" id="tRetrieval">0ms</div>
+                    </div>
+                    <div class="timing-item">
+                        <div class="timing-label">RRF Fusion</div>
+                        <div class="timing-value" id="tFusion">0ms</div>
+                    </div>
+                    <div class="timing-item">
+                        <div class="timing-label">Cross-Encoder</div>
+                        <div class="timing-value" id="tRerank">0ms</div>
+                    </div>
+                    <div class="timing-item">
+                        <div class="timing-label">LLM Generation</div>
+                        <div class="timing-value" id="tGen">0ms</div>
+                    </div>
+                    <div class="timing-item">
+                        <div class="timing-label">Total Time</div>
+                        <div class="timing-value" id="tTotal" style="color: var(--accent-cyan);">0ms</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attributed Sources Table -->
+            <div class="card" id="sourcesCard" style="display: none;">
+                <div class="card-header">📚 Attributed Chunks (Re-Ranked)</div>
+                <table class="sources-table">
+                    <thead>
+                        <tr>
+                            <th>File / Chunk</th>
+                            <th>Origin</th>
+                            <th>Score</th>
+                            <th>Matched Text</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sourcesTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        async function updateStats() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                document.getElementById('statChroma').innerText = data.chroma_chunks_count;
+                document.getElementById('statBm25').innerText = data.bm25_chunks_count;
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function switchIngestTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            if (tab === 'file') {
+                event.target.classList.add('active');
+                document.getElementById('fileIngestForm').style.display = 'block';
+                document.getElementById('textIngestForm').style.display = 'none';
+            } else {
+                event.target.classList.add('active');
+                document.getElementById('fileIngestForm').style.display = 'none';
+                document.getElementById('textIngestForm').style.display = 'block';
+            }
+        }
+
+        async function uploadDocumentFile() {
+            const fileInput = document.getElementById('docFileInput');
+            if (!fileInput.files.length) {
+                alert('Please select a file.');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const resDiv = document.getElementById('ingestResult');
+            resDiv.innerHTML = '<span style="color: var(--text-muted)">Uploading and indexing...</span>';
+
+            try {
+                const res = await fetch('/ingest', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    resDiv.innerHTML = `<span style="color: var(--accent-green)">✓ Ingested ${data.chunks_created} chunks from ${data.filename}</span>`;
+                    updateStats();
+                } else {
+                    resDiv.innerHTML = `<span style="color: #ef4444">Error: ${data.detail || 'Ingestion failed'}</span>`;
+                }
+            } catch (err) {
+                resDiv.innerHTML = `<span style="color: #ef4444">Error: ${err.message}</span>`;
+            }
+        }
+
+        async function ingestRawText() {
+            const text = document.getElementById('rawTextContent').value.trim();
+            const filename = document.getElementById('textFilename').value.trim() || 'manual_entry.txt';
+            if (!text) {
+                alert('Please enter text content.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('text', text);
+            formData.append('filename', filename);
+
+            const resDiv = document.getElementById('ingestResult');
+            resDiv.innerHTML = '<span style="color: var(--text-muted)">Indexing text into Chroma & BM25...</span>';
+
+            try {
+                const res = await fetch('/ingest/text', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    resDiv.innerHTML = `<span style="color: var(--accent-green)">✓ Ingested ${data.chunks_created} chunks</span>`;
+                    updateStats();
+                } else {
+                    resDiv.innerHTML = `<span style="color: #ef4444">Error: ${data.detail || 'Ingestion failed'}</span>`;
+                }
+            } catch (err) {
+                resDiv.innerHTML = `<span style="color: #ef4444">Error: ${err.message}</span>`;
+            }
+        }
+
+        async function executeQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) return;
+
+            const isStream = document.getElementById('chkStream').checked;
+            const useHyde = document.getElementById('chkHyde').checked;
+            const expandQuery = document.getElementById('chkExpand').checked;
+            const topN = parseInt(document.getElementById('selTopN').value);
+
+            const answerCard = document.getElementById('answerCard');
+            const answerContent = document.getElementById('answerContent');
+            const sourcesCard = document.getElementById('sourcesCard');
+            const sourcesTableBody = document.getElementById('sourcesTableBody');
+            const statusIndicator = document.getElementById('statusIndicator');
+
+            answerCard.style.display = 'block';
+            sourcesCard.style.display = 'none';
+            answerContent.innerText = '';
+            statusIndicator.innerText = 'Retrieving & Generating...';
+
+            if (isStream && !useHyde && !expandQuery) {
+                // Streaming mode via SSE
+                const eventSource = new EventSource(`/query/stream?q=${encodeURIComponent(query)}`);
+                
+                eventSource.addEventListener('token', (e) => {
+                    const data = JSON.parse(e.data);
+                    answerContent.innerText += data.token;
+                });
+
+                eventSource.addEventListener('sources', (e) => {
+                    const sources = JSON.parse(e.data);
+                    renderSourcesTable(sources);
+                });
+
+                eventSource.addEventListener('done', (e) => {
+                    eventSource.close();
+                    statusIndicator.innerText = 'Completed (Streamed)';
+                });
+
+                eventSource.addEventListener('error', (e) => {
+                    eventSource.close();
+                    statusIndicator.innerText = 'Error occurred';
+                });
+            } else {
+                // Standard POST query with detailed latency metrics
+                try {
+                    const startTime = performance.now();
+                    const res = await fetch('/query', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            query: query,
+                            use_hyde: useHyde,
+                            expand_query: expandQuery,
+                            top_n: topN
+                        })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || 'Query failed');
+
+                    answerContent.innerText = data.answer;
+                    statusIndicator.innerText = `Completed in ${data.timings.total_ms}ms`;
+
+                    // Populate timings
+                    document.getElementById('tRetrieval').innerText = `${data.timings.parallel_retrieval_ms}ms`;
+                    document.getElementById('tFusion').innerText = `${data.timings.fusion_ms}ms`;
+                    document.getElementById('tRerank').innerText = `${data.timings.rerank_ms}ms`;
+                    document.getElementById('tGen').innerText = `${data.timings.generation_ms}ms`;
+                    document.getElementById('tTotal').innerText = `${data.timings.total_ms}ms`;
+
+                    renderSourcesTable(data.sources);
+                } catch (err) {
+                    answerContent.innerText = `Error: ${err.message}`;
+                    statusIndicator.innerText = 'Failed';
+                }
+            }
+        }
+
+        function renderSourcesTable(sources) {
+            const sourcesCard = document.getElementById('sourcesCard');
+            const tbody = document.getElementById('sourcesTableBody');
+            tbody.innerHTML = '';
+
+            if (!sources || !sources.length) {
+                sourcesCard.style.display = 'none';
+                return;
+            }
+
+            sourcesCard.style.display = 'block';
+            sources.forEach(s => {
+                const tr = document.createElement('tr');
+                const origin = s.retriever_origin || s.retriever || 'cross_encoder';
+                const file = s.source_file || 'Document';
+                const score = (typeof s.score === 'number') ? s.score.toFixed(4) : s.score;
+                const text = s.text || s.preview || '';
+
+                tr.innerHTML = `
+                    <td><strong>${file}</strong> (chunk #${s.chunk_index})</td>
+                    <td><span class="retriever-pill">${origin}</span></td>
+                    <td><span class="score-pill">${score}</span></td>
+                    <td><div class="chunk-preview">${text.substring(0, 160)}...</div></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Initialize stats on page load
+        updateStats();
+    </script>
+</body>
+</html>

@@ -2,10 +2,11 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, Response
 from app.config import get_settings
 from app.api.routes import api_router
 from app.dependencies import warmup_services
+from app.core.metrics import export_metrics, CONTENT_TYPE_LATEST
 from app.utils.logger import logger
 
 
@@ -50,6 +51,11 @@ def create_app() -> FastAPI:
 
     ui_html_path = os.path.join(os.path.dirname(__file__), "ui", "dashboard.html")
 
+    @app.get("/metrics", tags=["Monitoring"])
+    def prometheus_metrics():
+        """Prometheus metrics endpoint for Grafana/monitoring systems."""
+        return Response(content=export_metrics(), media_type=CONTENT_TYPE_LATEST)
+
     @app.get("/ui", response_class=HTMLResponse, tags=["UI"])
     def get_ui():
         if os.path.exists(ui_html_path):
@@ -57,18 +63,22 @@ def create_app() -> FastAPI:
                 return HTMLResponse(content=f.read())
         return HTMLResponse(content="<h2>Dashboard not found</h2>", status_code=404)
 
-    @app.get("/", response_class=HTMLResponse, tags=["Root"])
+    @app.get("/", tags=["Root"])
     def root():
-        # Default root serves the UI console
-        if os.path.exists(ui_html_path):
-            with open(ui_html_path, "r", encoding="utf-8") as f:
-                return HTMLResponse(content=f.read())
         return {
             "name": settings.APP_NAME,
             "version": "0.1.0",
             "docs": "/docs",
             "health": "/health",
-            "ui": "/ui"
+            "ui": "/ui",
+            "metrics": "/metrics",
+            "endpoints": {
+                "ingest_file": "POST /ingest",
+                "ingest_text": "POST /ingest/text",
+                "ingest_stats": "GET /ingest/stats",
+                "query": "POST /query",
+                "query_stream": "GET /query/stream?q=...",
+            }
         }
 
     return app

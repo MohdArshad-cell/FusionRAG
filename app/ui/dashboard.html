@@ -327,6 +327,12 @@
                     <button class="tab-btn" onclick="switchIngestTab('text')">Raw Text</button>
                 </div>
 
+                <div class="checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="chkHierarchical"> Small-to-Big (Parent-Child Chunking)
+                    </label>
+                </div>
+
                 <div id="fileIngestForm">
                     <label>Select Document (.pdf, .docx, .txt, .md, .csv)</label>
                     <input type="file" id="docFileInput" style="margin-bottom: 0.8rem; font-size: 0.85rem;">
@@ -379,8 +385,13 @@
             </div>
 
             <div class="answer-box" id="answerCard" style="display: none;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="font-weight: 600; font-size: 0.95rem; color: var(--accent-cyan);">💡 Verified Answer</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <div style="font-weight: 600; font-size: 0.95rem; color: var(--accent-cyan); display: flex; align-items: center; gap: 0.5rem;">
+                        <span>💡 Verified Answer</span>
+                        <span id="cacheBadge" style="display:none; font-size: 0.75rem; background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); padding: 0.15rem 0.5rem; border-radius: 4px;">⚡ CACHED</span>
+                        <span id="cragBadge" style="font-size: 0.75rem; background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); border: 1px solid var(--accent-cyan); padding: 0.15rem 0.5rem; border-radius: 4px;">CONFIDENCE: HIGH</span>
+                        <span id="groundedBadge" style="font-size: 0.75rem; background: rgba(139, 92, 246, 0.2); color: var(--accent-purple); border: 1px solid var(--accent-purple); padding: 0.15rem 0.5rem; border-radius: 4px;">GROUNDED: 1.0</span>
+                    </div>
                     <div id="statusIndicator" style="font-size: 0.8rem; color: var(--text-muted);">Completed</div>
                 </div>
                 <div class="answer-text" id="answerContent"></div>
@@ -571,6 +582,16 @@
 
                     answerContent.innerText = data.answer;
                     statusIndicator.innerText = `Completed in ${data.timings.total_ms}ms`;
+
+                    // Badges
+                    const cacheBadge = document.getElementById('cacheBadge');
+                    cacheBadge.style.display = data.cached ? 'inline-block' : 'none';
+
+                    const cragBadge = document.getElementById('cragBadge');
+                    cragBadge.innerText = `CONFIDENCE: ${data.retrieval_confidence || 'HIGH'}`;
+
+                    const groundedBadge = document.getElementById('groundedBadge');
+                    groundedBadge.innerText = `GROUNDED: ${data.groundedness_score || 1.0} (${data.groundedness_status || 'OK'})`;
 
                     // Populate timings
                     document.getElementById('tRetrieval').innerText = `${data.timings.parallel_retrieval_ms}ms`;

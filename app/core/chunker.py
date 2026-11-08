@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from app.core.models import Chunk
 
 
@@ -128,4 +128,42 @@ class RecursiveCharacterChunker:
             )
 
         return chunks
+
+    def chunk_hierarchical(
+        self,
+        text: str,
+        doc_id: str,
+        source_file: str = "",
+        parent_chunk_size: int = 1024,
+        parent_overlap: int = 100,
+        child_chunk_size: int = 256,
+        child_overlap: int = 30,
+    ) -> Tuple[List[Chunk], List[Chunk]]:
+        """
+        Creates hierarchical chunks for 'Small-to-Big' retrieval.
+        Returns: (parent_chunks, child_chunks)
+        Child chunks reference their parent's ID via parent_id.
+        """
+        parent_chunker = RecursiveCharacterChunker(
+            chunk_size=parent_chunk_size,
+            chunk_overlap=parent_overlap,
+            separators=self.separators
+        )
+        child_chunker = RecursiveCharacterChunker(
+            chunk_size=child_chunk_size,
+            chunk_overlap=child_overlap,
+            separators=self.separators
+        )
+
+        parents = parent_chunker.chunk(text, doc_id=f"{doc_id}_parent", source_file=source_file)
+        children: List[Chunk] = []
+
+        for p in parents:
+            sub_children = child_chunker.chunk(p.text, doc_id=f"{doc_id}_child", source_file=source_file)
+            for c_idx, child in enumerate(sub_children):
+                child.id = f"{p.id}_c{c_idx}"
+                child.parent_id = p.id
+                children.append(child)
+
+        return parents, children
 

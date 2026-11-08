@@ -9,6 +9,9 @@ from app.core.reranker import CrossEncoderReranker
 from app.core.retriever import DualRetriever
 from app.core.generator import get_llm_generator, BaseLLMGenerator
 from app.core.query_expansion import QueryProcessor
+from app.core.semantic_cache import SemanticQueryCache
+from app.core.guardrails import RetrievalConfidenceGate, GroundednessVerifier
+from app.core.parent_store import ParentDocumentStore
 from app.ingestion.pipeline import IngestionPipeline
 from app.utils.logger import logger
 
@@ -24,6 +27,10 @@ class Container:
     retriever: Optional[DualRetriever] = None
     generator: Optional[BaseLLMGenerator] = None
     query_processor: Optional[QueryProcessor] = None
+    semantic_cache: Optional[SemanticQueryCache] = None
+    crag_gate: Optional[RetrievalConfidenceGate] = None
+    groundedness_verifier: Optional[GroundednessVerifier] = None
+    parent_store: Optional[ParentDocumentStore] = None
     pipeline: Optional[IngestionPipeline] = None
 
 
@@ -90,6 +97,33 @@ def get_query_processor() -> QueryProcessor:
     return container.query_processor
 
 
+def get_semantic_cache() -> SemanticQueryCache:
+    if container.semantic_cache is None:
+        container.semantic_cache = SemanticQueryCache(similarity_threshold=0.94)
+    return container.semantic_cache
+
+
+def get_crag_gate() -> RetrievalConfidenceGate:
+    if container.crag_gate is None:
+        container.crag_gate = RetrievalConfidenceGate(
+            high_confidence_threshold=0.50,
+            low_confidence_threshold=-2.0
+        )
+    return container.crag_gate
+
+
+def get_groundedness_verifier() -> GroundednessVerifier:
+    if container.groundedness_verifier is None:
+        container.groundedness_verifier = GroundednessVerifier()
+    return container.groundedness_verifier
+
+
+def get_parent_store() -> ParentDocumentStore:
+    if container.parent_store is None:
+        container.parent_store = ParentDocumentStore()
+    return container.parent_store
+
+
 def get_ingestion_pipeline() -> IngestionPipeline:
     if container.pipeline is None:
         container.pipeline = IngestionPipeline(
@@ -97,6 +131,7 @@ def get_ingestion_pipeline() -> IngestionPipeline:
             embedder=get_embedder(),
             vector_store=get_vector_store(),
             bm25_index=get_bm25_index(),
+            parent_store=get_parent_store(),
         )
     return container.pipeline
 

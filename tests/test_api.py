@@ -16,6 +16,13 @@ def test_root_endpoint(client):
     assert "FusionRAG" in data["name"]
 
 
+def test_ui_endpoint(client):
+    response = client.get("/ui")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "FusionRAG" in response.text
+
+
 def test_health_endpoint(client):
     response = client.get("/health")
     assert response.status_code == 200

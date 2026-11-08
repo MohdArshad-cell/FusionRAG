@@ -11,6 +11,7 @@ class Chunk(BaseModel):
     chunk_index: int = Field(default=0, description="Sequential index of chunk in document")
     char_start: int = Field(default=0, description="Start character offset in source document")
     char_end: int = Field(default=0, description="End character offset in source document")
+    parent_id: Optional[str] = Field(default=None, description="Identifier of enclosing parent chunk if small-to-big")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary extra metadata")
 
 

@@ -5,13 +5,34 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.responses import StreamingResponse
 from app.config import Settings, get_settings
 from app.api.schemas.query import QueryRequest, QueryResponse, ChunkSource, QueryTimings
-from app.dependencies import get_retriever, get_reranker, get_llm, get_query_processor
+from app.dependencies import (
+    get_retriever,
+    get_reranker,
+    get_llm,
+    get_query_processor,
+    get_semantic_cache,
+    get_crag_gate,
+    get_groundedness_verifier,
+    get_embedder,
+    get_parent_store,
+)
 from app.core.retriever import DualRetriever
 from app.core.fusion import reciprocal_rank_fusion
 from app.core.reranker import CrossEncoderReranker
 from app.core.context_builder import ContextBuilder
 from app.core.generator import BaseLLMGenerator
 from app.core.query_expansion import QueryProcessor
+from app.core.semantic_cache import SemanticQueryCache
+from app.core.guardrails import RetrievalConfidenceGate, GroundednessVerifier
+from app.core.parent_store import ParentDocumentStore
+from app.core.embedder import Embedder
+from app.core.metrics import (
+    QUERY_COUNTER,
+    QUERY_LATENCY,
+    CACHE_HITS,
+    CACHE_MISSES,
+    GROUNDEDNESS_HISTOGRAM,
+)
 from app.utils.logger import logger
 from app.utils.timing import measure_ms
 
@@ -26,15 +47,25 @@ async def query_pipeline(
     reranker: CrossEncoderReranker = Depends(get_reranker),
     llm: BaseLLMGenerator = Depends(get_llm),
     query_processor: QueryProcessor = Depends(get_query_processor),
+    semantic_cache: SemanticQueryCache = Depends(get_semantic_cache),
+    crag_gate: RetrievalConfidenceGate = Depends(get_crag_gate),
+    groundedness_verifier: GroundednessVerifier = Depends(get_groundedness_verifier),
+    embedder: Embedder = Depends(get_embedder),
+    parent_store: ParentDocumentStore = Depends(get_parent_store),
 ):
     """
     Executes the full production Hybrid-Search RAG pipeline:
-    1. Optional query enhancement (HyDE or Multi-Query expansion)
-    2. Parallel retrieval: Dense (ChromaDB) + Sparse (BM25) with optional doc_id filtering
-    3. Reciprocal Rank Fusion (RRF) to merge and deduplicate
-    4. Cross-Encoder re-ranking on top candidates
-    5. 'Lost in the Middle' context assembly
-    6. LLM answer synthesis
+    1. Semantic Query Caching check (sub-3ms response on cache hit)
+    2. Query enhancement (HyDE / Multi-Query)
+    3. Dual parallel retrieval: Dense (ChromaDB) + Sparse (BM25)
+    4. Reciprocal Rank Fusion (RRF)
+    5. Cross-Encoder re-ranking
+    6. CRAG confidence gating (abstain if evidence is insufficient)
+    7. Parent-Document resolution (Small-to-Big context expansion)
+    8. 'Lost in the Middle' context assembly
+    9. LLM answer synthesis
+    10. Groundedness & faithfulness verification
+    11. Prometheus metrics emission
     """
     total_start = time.perf_counter()
     query = request.query.strip()
@@ -43,7 +74,24 @@ async def query_pipeline(
 
     final_n = request.top_n or settings.FINAL_TOP_N
 
-    # 1. Query Enhancement (HyDE / Multi-Query)
+    # 1. Semantic Cache Check
+    query_emb = await asyncio.to_thread(embedder.embed_query, query)
+    if request.enable_cache:
+        cached_result = semantic_cache.lookup(query_emb)
+        if cached_result:
+            cached_data, sim_score, orig_query = cached_result
+            cached_resp = QueryResponse(**cached_data)
+            cached_resp.cached = True
+            cached_resp.timings.total_ms = round((time.perf_counter() - total_start) * 1000, 2)
+            CACHE_HITS.inc()
+            QUERY_COUNTER.labels(status="cached").inc()
+            QUERY_LATENCY.observe(cached_resp.timings.total_ms / 1000.0)
+            logger.info(f"Serving query '{query}' from semantic cache in {cached_resp.timings.total_ms}ms")
+            return cached_resp
+        else:
+            CACHE_MISSES.inc()
+
+    # 2. Query Enhancement (HyDE / Multi-Query)
     dense_query_text = query
     queries_to_search = [query]
     with measure_ms() as m_enhancement:
@@ -52,7 +100,7 @@ async def query_pipeline(
         elif request.expand_query:
             queries_to_search = await query_processor.expand_query(query, num_variants=2)
 
-    # 2. Parallel Dual Retrieval
+    # 3. Parallel Dual Retrieval
     all_dense_results = []
     all_bm25_results = []
     retrieval_timings = {"dense_retrieval_ms": 0.0, "bm25_retrieval_ms": 0.0, "parallel_retrieval_ms": 0.0}
@@ -72,7 +120,7 @@ async def query_pipeline(
         retrieval_timings["bm25_retrieval_ms"] += r_timings["bm25_retrieval_ms"]
         retrieval_timings["parallel_retrieval_ms"] += r_timings["parallel_retrieval_ms"]
 
-    # 3. Reciprocal Rank Fusion across all candidate lists
+    # 4. Reciprocal Rank Fusion across all candidate lists
     candidate_lists = all_dense_results + all_bm25_results
     with measure_ms() as m_fusion:
         fused_candidates = reciprocal_rank_fusion(
@@ -81,7 +129,7 @@ async def query_pipeline(
             top_n=settings.FUSION_TOP_N,
         )
 
-    # 4. Cross-Encoder Re-Ranking
+    # 5. Cross-Encoder Re-Ranking
     with measure_ms() as m_rerank:
         reranked_chunks = await asyncio.to_thread(
             reranker.rerank,
@@ -90,14 +138,33 @@ async def query_pipeline(
             top_n=final_n,
         )
 
-    # 5. Context Building with Lost-in-the-Middle Reordering
-    context_str = ContextBuilder.build_context_string(reranked_chunks, apply_lost_in_middle=True)
+    # 6. CRAG Confidence Gate
+    crag_eval = crag_gate.evaluate_candidates(reranked_chunks)
+    retrieval_confidence = crag_eval["decision"]
 
-    # 6. LLM Answer Generation
-    with measure_ms() as m_gen:
-        answer = await llm.generate(query=query, context=context_str)
+    if request.enforce_crag and retrieval_confidence == "INSUFFICIENT":
+        answer = "Based on the verified knowledge base, no relevant documents were found to answer this question."
+        groundedness = {"groundedness_score": 1.0, "status": "SAFE_ABSTENTION"}
+        m_gen = {"elapsed_ms": 0.0}
+        QUERY_COUNTER.labels(status="abstain").inc()
+    else:
+        # 7. Parent-Document Resolution (Small-to-Big Retrieval)
+        context_chunks = parent_store.resolve_to_parent_chunks(reranked_chunks)
+
+        # 8. Context Building with Lost-in-the-Middle Reordering
+        context_str = ContextBuilder.build_context_string(context_chunks, apply_lost_in_middle=True)
+
+        # 9. LLM Answer Generation
+        with measure_ms() as m_gen:
+            answer = await llm.generate(query=query, context=context_str)
+
+        # 10. Groundedness Verification
+        groundedness = groundedness_verifier.verify(answer=answer, context=context_str)
+        QUERY_COUNTER.labels(status="success").inc()
 
     total_elapsed = round((time.perf_counter() - total_start) * 1000, 2)
+    QUERY_LATENCY.observe(total_elapsed / 1000.0)
+    GROUNDEDNESS_HISTOGRAM.observe(groundedness["groundedness_score"])
 
     # Format sources for response
     sources = [
@@ -124,14 +191,22 @@ async def query_pipeline(
         total_ms=total_elapsed,
     )
 
-    logger.info(f"Query completed in {total_elapsed}ms [Parallel: {timings.parallel_retrieval_ms}ms, Fusion: {timings.fusion_ms}ms, Rerank: {timings.rerank_ms}ms, LLM: {timings.generation_ms}ms]")
-
-    return QueryResponse(
+    response = QueryResponse(
         query=query,
         answer=answer,
         sources=sources,
         timings=timings,
+        cached=False,
+        retrieval_confidence=retrieval_confidence,
+        groundedness_score=groundedness["groundedness_score"],
+        groundedness_status=groundedness["status"],
     )
+
+    # Store in semantic cache if successful
+    if request.enable_cache and retrieval_confidence != "INSUFFICIENT":
+        semantic_cache.put(query=query, query_embedding=query_emb, response_data=response.model_dump())
+
+    return response
 
 
 @router.get("/stream")

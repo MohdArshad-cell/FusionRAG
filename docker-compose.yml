@@ -27,3 +27,4 @@ volumes:
     driver: local
   bm25_data:
     driver: local
+

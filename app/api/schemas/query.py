@@ -8,6 +8,8 @@ class QueryRequest(BaseModel):
     top_n: Optional[int] = Field(default=None, description="Override number of final context chunks")
     use_hyde: bool = Field(default=False, description="Enable Hypothetical Document Embeddings (HyDE)")
     expand_query: bool = Field(default=False, description="Enable Multi-Query Expansion via LLM")
+    enable_cache: bool = Field(default=True, description="Enable Semantic Vector Query Caching")
+    enforce_crag: bool = Field(default=True, description="Enable Corrective RAG confidence gating")
     doc_id_filter: Optional[str] = Field(default=None, description="Filter results to a specific document ID")
 
 
@@ -37,4 +39,8 @@ class QueryResponse(BaseModel):
     answer: str
     sources: List[ChunkSource]
     timings: QueryTimings
+    cached: bool = Field(default=False, description="Whether the answer was served from the Semantic Cache")
+    retrieval_confidence: str = Field(default="HIGH", description="CRAG confidence level: HIGH, AMBIGUOUS, INSUFFICIENT")
+    groundedness_score: float = Field(default=1.0, description="Faithfulness / hallucination guardrail score (0.0 to 1.0)")
+    groundedness_status: str = Field(default="HIGHLY_GROUNDED", description="Groundedness status: HIGHLY_GROUNDED, MODERATELY_GROUNDED, POTENTIAL_HALLUCINATION")
 

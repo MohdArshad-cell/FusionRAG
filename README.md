@@ -12,22 +12,22 @@
 
 ---
 
-## 📌 Table of Contents
+## Table of Contents
 
-- [The Real-World Problem](#-the-real-world-problem)
-- [System Architecture](#-system-architecture)
-- [Core Differentiators](#-core-differentiators)
-- [Benchmark Results](#-benchmark-results)
-- [Project Directory Layout](#-project-directory-layout)
-- [Quickstart & Installation](#-quickstart--installation)
-- [API Reference & Usage](#-api-reference--usage)
-- [Interactive Web Console](#-interactive-web-console)
-- [Technical Interview Talking Points](#-technical-interview-talking-points)
-- [License](#-license)
+- [Overview & Problem Statement](#overview--problem-statement)
+- [System Architecture](#system-architecture)
+- [Core Engineering Pillars](#core-engineering-pillars)
+- [Benchmark Results](#benchmark-results)
+- [Project Directory Layout](#project-directory-layout)
+- [Installation & Setup](#installation--setup)
+- [API Reference & Usage](#api-reference--usage)
+- [Developer Web Console](#developer-web-console)
+- [Monitoring & Prometheus Metrics](#monitoring--prometheus-metrics)
+- [License](#license)
 
 ---
 
-## 💥 The Real-World Problem
+## Overview & Problem Statement
 
 Most production RAG systems built today suffer from a fundamental failure mode:
 
@@ -37,12 +37,12 @@ Most production RAG systems built today suffer from a fundamental failure mode:
    - Unique identifiers: UUIDs, serial numbers, specific names
 2. **Lexical BM25 Flaw:** Traditional sparse search (BM25Okapi) excels at keyword frequency matching, but lacks semantic understanding (e.g., searching *"how to fix thermal coastline expansion"* will never match a document about *"rising greenhouse gases and sea levels"* unless exact terms overlap).
 
-### 💡 The Solution: FusionRAG
+### The FusionRAG Solution
 **FusionRAG** combines dense semantic embeddings and sparse lexical tokens into a synchronized dual-retrieval pipeline merged via **Reciprocal Rank Fusion (RRF)** and deep **Cross-Encoder Re-Ranking**, achieving **100% recall** across both exact identifiers and conceptual semantics.
 
 ---
 
-## 📐 System Architecture
+## System Architecture
 
 ```mermaid
 flowchart TD
@@ -62,15 +62,19 @@ flowchart TD
     BM25 -->|Top 20 Candidates| RRF
 
     RRF -->|Top 10 Deduplicated Candidates| CrossEncoder["Cross-Encoder Re-Ranker (ms-marco-MiniLM-L-6-v2)"]
-    CrossEncoder -->|Top 5 Scored Chunks| LostInMiddle["'Lost in the Middle' Attention Reordering"]
+    CrossEncoder --> CRAG{"CRAG Confidence Gate"}
+    CRAG -->|Sufficient Evidence| ParentDoc["Parent Document Resolution (Small-to-Big)"]
+    CRAG -->|Insufficient| Abstain["Safe Abstention Response"]
+    ParentDoc --> LostInMiddle["'Lost in the Middle' Attention Reordering"]
     LostInMiddle --> PromptContext["Context Window Assembly"]
     PromptContext --> LLM["LLM Generation (Groq / Gemini / Local)"]
-    LLM --> StreamOut["Real-Time SSE Token Stream / JSON Response"]
+    LLM --> Guardrail["Groundedness & Faithfulness Verifier"]
+    Guardrail --> StreamOut["Real-Time SSE Token Stream / JSON Response"]
 ```
 
 ---
 
-## 🔬 Core Differentiators
+## Core Engineering Pillars
 
 ### 1. Dual Parallel Retrieval (`retriever.py`)
 Both dense semantic search (ChromaDB) and lexical sparse search (BM25) execute concurrently using `asyncio.gather()` with CPU offloading via `asyncio.to_thread()`, keeping retrieval latencies in the **18–22ms** window.
@@ -93,29 +97,28 @@ Research proves that LLMs attend predominantly to the start and end of prompt co
 - **Attention-optimized prompt order:** `[1, 3, 5, 4, 2]`
 - *Result:* The highest-confidence chunk is at the very top, the second highest is at the bottom, and lower ranks sit in the middle.
 
-### 5. Advanced Enhancements: HyDE & Multi-Query Expansion (`query_expansion.py`)
+### 5. Semantic Vector Query Cache (`semantic_cache.py`)
+Stores `(query_embedding, response)` pairs and performs vectorized cosine similarity searches. If an incoming query has $\ge 0.94$ cosine similarity to an earlier query (e.g. *"What is X-500?"* vs. *"Explain centrifuge model X-500"*), it serves the cached answer in **< 3ms**, slashing API costs and response latency by up to 98%.
+
+### 6. Corrective RAG (CRAG) Confidence Gating (`guardrails.py`)
+Inspects the top Cross-Encoder logit scores. If the best score falls below the minimum threshold, it classifies the retrieval as `INSUFFICIENT` and safely abstains rather than generating hallucinations.
+
+### 7. Faithfulness & Groundedness Verification (`guardrails.py`)
+Compares generated answer claims against retrieved source context, calculating a **Faithfulness Score (0.0 to 1.0)** with risk classification (`HIGHLY_GROUNDED`, `MODERATELY_GROUNDED`, `POTENTIAL_HALLUCINATION`).
+
+### 8. Parent-Document / "Small-to-Big" Retrieval (`parent_store.py`)
+Splits text into fine-grained child chunks (256 chars) for high-density vector & BM25 indexing, while maintaining parent section chunks (1024 chars). When a child chunk matches the query, the engine resolves it to its parent document before context assembly.
+
+### 9. Query Enhancement: HyDE & Multi-Query Expansion (`query_expansion.py`)
 - **HyDE (Hypothetical Document Embeddings):** Synthesizes a hypothetical answer before embedding, bridging the semantic gap between questions and document content.
 - **Multi-Query Expansion:** Generates diverse paraphrases to maximize lexical and semantic surface area.
 
-### 6. Streaming via Server-Sent Events (SSE)
-Supports real-time token streaming directly to web clients with source provenance emitted at completion.
-
-### 7. ⚡ Semantic Vector Query Cache (`semantic_cache.py`)
-Stores `(query_embedding, response)` pairs and performs vectorized cosine similarity searches. If an incoming query has $\ge 0.94$ cosine similarity to an earlier query (e.g. *"What is X-500?"* vs. *"Explain centrifuge model X-500"*), it serves the cached answer in **< 3ms**, slashing API costs and response latency by up to 98%.
-
-### 8. 🛡️ CRAG Confidence Gating & Groundedness Guardrail (`guardrails.py`)
-- **CRAG (Corrective RAG) Confidence Gate:** Inspects the top Cross-Encoder logit scores. If the best score falls below the minimum threshold, it classifies the retrieval as `INSUFFICIENT` and safely abstains rather than generating hallucinations.
-- **Groundedness Verifier:** Compares generated answer claims against retrieved source context, calculating a **Faithfulness Score (0.0 to 1.0)** with risk classification (`HIGHLY_GROUNDED`, `MODERATELY_GROUNDED`, `POTENTIAL_HALLUCINATION`).
-
-### 9. 🧩 Parent-Document / "Small-to-Big" Retrieval (`parent_store.py`)
-Splits text into fine-grained child chunks (256 chars) for high-density vector & BM25 indexing, while maintaining parent section chunks (1024 chars). When a child chunk matches the query, the engine resolves it to its parent document before context assembly.
-
-### 10. 📈 Prometheus Metrics Exporter (`/metrics`)
-Exposes production Prometheus metrics: `fusionrag_queries_total`, `fusionrag_query_latency_seconds_bucket`, `fusionrag_cache_hits_total`, and `fusionrag_groundedness_score`.
+### 10. Real-Time Token Streaming via SSE (`query.py`)
+Supports real-time token streaming via Server-Sent Events (SSE) directly to web clients with source provenance emitted at completion.
 
 ---
 
-## 📊 Benchmark Results
+## Benchmark Results
 
 Evaluated with `scripts/benchmark.py` on real technical queries containing exact error codes (`ERR_404_AUTH`), hardware model identifiers (`X-500`), network gateway timeouts (`ERR_502_GATEWAY`), and abstract conceptual questions:
 
@@ -127,7 +130,7 @@ Evaluated with `scripts/benchmark.py` on real technical queries containing exact
 
 ---
 
-## 📂 Project Directory Layout
+## Project Directory Layout
 
 ```
 FusionRAG/
@@ -143,7 +146,7 @@ FusionRAG/
 │   │   └── schemas/             # Pydantic request & response contracts
 │   ├── core/
 │   │   ├── models.py            # Chunk & ScoredChunk models
-│   │   ├── chunker.py           # Recursive Character Text Splitter with overlap
+│   │   ├── chunker.py           # Recursive Character Text Splitter with hierarchical support
 │   │   ├── embedder.py          # SentenceTransformer ("all-MiniLM-L6-v2") wrapper
 │   │   ├── vector_store.py      # ChromaDB persistent store with metadata filtering
 │   │   ├── bm25_index.py        # Tokenizer preserving hyphens & codes with BM25Okapi
@@ -152,7 +155,11 @@ FusionRAG/
 │   │   ├── reranker.py          # Cross-Encoder ("ms-marco-MiniLM-L-6-v2")
 │   │   ├── context_builder.py   # "Lost in the Middle" context ordering
 │   │   ├── generator.py         # Multi-provider LLM (Groq, Gemini, Mock)
-│   │   └── query_expansion.py   # HyDE and Multi-Query Expansion
+│   │   ├── query_expansion.py   # HyDE and Multi-Query Expansion
+│   │   ├── semantic_cache.py    # Sub-3ms vector similarity query cache
+│   │   ├── guardrails.py        # CRAG confidence gate & Groundedness verifier
+│   │   ├── parent_store.py      # Parent-Document / Small-to-Big store
+│   │   └── metrics.py           # Prometheus metrics exporter
 │   ├── ingestion/
 │   │   ├── extractors/          # PDF (PyMuPDF/pypdf), DOCX, and TXT/MD/CSV
 │   │   ├── preprocessor.py      # Text cleaning and NFKC normalization
@@ -164,8 +171,13 @@ FusionRAG/
 │       └── timing.py            # Millisecond performance profiler
 ├── data/                        # Persistent stores for ChromaDB and BM25 index
 ├── scripts/
-│   └── benchmark.py             # Accuracy & latency comparison benchmark
-├── tests/                       # Full pytest suite (16 tests)
+│   ├── benchmark.py             # Accuracy & latency comparison benchmark
+│   ├── cli_chat.py              # Interactive rich terminal console
+│   └── seed_data.py             # Seed sample technical knowledge base
+├── tests/                       # Full pytest suite (22 tests)
+├── .github/workflows/ci.yml     # Automated GitHub Actions CI workflow
+├── Dockerfile                   # Multi-stage container definition
+├── docker-compose.yml           # Multi-container orchestration
 ├── IMPLEMENTATION_PLAN.md       # Detailed 7-phase architecture blueprint
 ├── pyproject.toml               # Project metadata & dependencies
 └── .env.example                 # Environment variable templates
@@ -173,12 +185,12 @@ FusionRAG/
 
 ---
 
-## 🚀 Quickstart & Installation
+## Installation & Setup
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/MohdArshad-cell/FusionRAG-.git
-cd FusionRAG-
+git clone https://github.com/MohdArshad-cell/FusionRAG.git
+cd FusionRAG
 ```
 
 ### 2. Install Dependencies
@@ -204,7 +216,7 @@ LLM_MODEL=llama-3.3-70b-versatile
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 5. Seed Realistic Technical Knowledge Base (Optional)
+### 5. Seed Sample Technical Knowledge Base (Optional)
 ```bash
 python scripts/seed_data.py
 ```
@@ -217,7 +229,7 @@ python scripts/cli_chat.py
 
 ---
 
-## 📡 API Reference & Usage
+## API Reference & Usage
 
 ### 1. Ingest Documents
 **Upload File (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`):**
@@ -241,7 +253,9 @@ curl -X POST "http://localhost:8000/query" \
        "query": "What are the specs for centrifuge model X-500?",
        "top_n": 5,
        "use_hyde": false,
-       "expand_query": false
+       "expand_query": false,
+       "enable_cache": true,
+       "enforce_crag": true
      }'
 ```
 
@@ -268,7 +282,11 @@ curl -X POST "http://localhost:8000/query" \
     "rerank_ms": 35.12,
     "generation_ms": 220.14,
     "total_ms": 275.8
-  }
+  },
+  "cached": false,
+  "retrieval_confidence": "HIGH",
+  "groundedness_score": 0.95,
+  "groundedness_status": "HIGHLY_GROUNDED"
 }
 ```
 
@@ -279,36 +297,36 @@ curl -N "http://localhost:8000/query/stream?q=What+does+ERR_404_AUTH+indicate?"
 
 ---
 
-## 🖥️ Interactive Web Console
+## Developer Web Console
 
 FusionRAG includes a built-in dark-mode developer dashboard. Once the server is running, navigate to:
 
-👉 **`http://localhost:8000/ui`** (or **`http://localhost:8000/`**)
+👉 **`http://localhost:8000/ui`**
 
 **Features:**
 - Drag-and-drop document upload + raw text editor
+- Small-to-Big hierarchical chunking toggle
 - Real-time token streaming chat interface
 - Live latency waterfall (retrieval vs. fusion vs. reranking vs. LLM)
-- Attributed chunk view with Cross-Encoder scores and origin tags
+- Attributed chunk view with Cross-Encoder scores, origin tags, and groundedness metrics
 
 ---
 
-## 🎯 Technical Interview Talking Points
+## Monitoring & Prometheus Metrics
 
-1. **How do you overcome the Latency Budget bottleneck of dual retrieval + Cross-Encoders?**
-   - **Answer:** Dual search runs concurrently via `asyncio.gather()` with thread-pooling for CPU-bound BM25 and vector queries. The expensive cross-encoder is strictly restricted to the top 10 candidates output by RRF, capping re-ranking overhead at ~35–50ms on CPU. Models are pre-warmed during the FastAPI `lifespan` event to eliminate cold-start lag.
+FusionRAG exports real-time Prometheus metrics at:
 
-2. **Why Reciprocal Rank Fusion (RRF) instead of Min-Max Score Normalization?**
-   - **Answer:** BM25 produces unbounded scores ($0 \dots \infty$) that vary wildly depending on corpus size and query length, while cosine similarity is bounded $[0, 1]$. Min-Max scaling is distorted by extreme outliers. RRF uses positional ranks ($1 / (k + rank)$), ensuring robust combination across incompatible scoring scales.
+👉 **`http://localhost:8000/metrics`**
 
-3. **Why Cross-Encoders over Bi-Encoders for final ranking?**
-   - **Answer:** Bi-encoders encode queries and documents into independent vector spaces ($O(N)$), losing token-level interactions. Cross-encoders process the concatenated query-document pair through all self-attention layers ($O(N \times L)$), capturing precise cross-token attention for subtle semantic matching.
-
-4. **What is the "Lost in the Middle" problem?**
-   - **Answer:** LLM attention mechanisms degrade on long contexts, prioritizing tokens at the start and end of the prompt window. FusionRAG applies an alternating sort (`[1, 3, 5, 4, 2]`) to position top-ranked evidence at the edges of the context.
+Key metrics tracked:
+- `fusionrag_queries_total{status="success|cached|abstain"}`
+- `fusionrag_query_latency_seconds_bucket`
+- `fusionrag_cache_hits_total`
+- `fusionrag_cache_misses_total`
+- `fusionrag_groundedness_score`
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).

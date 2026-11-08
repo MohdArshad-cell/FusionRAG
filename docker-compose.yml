@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  fusionrag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fusionrag-engine
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=FusionRAG
+      - APP_ENV=production
+      - DEBUG=false
+      - LLM_PROVIDER=mock       # Set to groq or gemini in your .env
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - CHROMA_PERSIST_DIR=/app/data/chroma_db
+      - BM25_PERSIST_DIR=/app/data/bm25_index
+    volumes:
+      - chroma_data:/app/data/chroma_db
+      - bm25_data:/app/data/bm25_index
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+    driver: local
+  bm25_data:
+    driver: local
